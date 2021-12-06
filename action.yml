@@ -1,0 +1,84 @@
+name: 'Terraform action'
+author: 'Barnaby Gray'
+description: 'Install terraform, validate and either post plan back to Github or apply'
+inputs:
+  action:
+    description: 'terraform action (plan or apply)'
+    required: true
+  github-token:
+    description: 'Github token'
+    required: true
+  version:
+    description: 'terraform version'
+    required: true
+  working-directory:
+    description: 'working directory'
+    required: false
+    default: '.'
+runs:
+  using: "composite"
+  steps:
+    - name: Setup terraform
+      uses: hashicorp/setup-terraform@v1
+      with:
+        terraform_version: ${{ inputs.version }}
+
+    - name: Terraform init
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform init
+
+    - name: Terraform validate
+      shell: bash
+      id: validate
+      working-directory: ${{ inputs.working-directory }}
+      run: terraform validate -no-color
+
+    - name: Terraform plan
+      shell: bash
+      id: plan
+      # Run plan, writing to output file, then clean up 'Refreshing state...' lines.
+      if: inputs.action == 'plan'
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+        output=$(terraform plan -no-color -input=false -detailed-exitcode 2>&1)
+        echo "$output" | sed '/Refreshing state.../d' | tee /tmp/plan.txt
+      # 0 = no changes, 1 = error, 2 = success with changes
+
+    - name: Add plan to PR
+      uses: actions/github-script@v3
+      if: inputs.action == 'plan' && steps.plan.outputs.exitcode != 0
+      # only add plan to PR if there were errors or changes
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const plan_result = (${{ steps.plan.outputs.exitcode }} == 2 ? "Success": "Error");
+          const fs = require("fs");
+          const plan = fs.readFileSync("/tmp/plan.txt", "utf8");
+          const output = `#### Terraform Validation 🤖${{ steps.validate.outputs.stdout }}
+          #### Terraform Plan 📖${plan_result}
+
+          <details><summary>Show Plan</summary>
+
+          \`\`\`${plan}\`\`\`\`
+
+          </details>`;
+
+          github.issues.createComment({
+            ...context.repo,
+            issue_number: context.issue.number,
+            body: output
+          })
+
+    - name: Terraform Plan Status
+      shell: bash
+      if: steps.plan.outputs.exitcode == 1
+      run: exit 1
+
+    - name: Terraform apply
+      shell: bash
+      if: inputs.action == 'apply'
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        terraform apply -auto-approve -input=false
