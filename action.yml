@@ -48,7 +48,7 @@ runs:
 
     - name: Add plan to PR
       uses: actions/github-script@v3
-      if: inputs.action == 'plan' && steps.plan.outputs.exitcode != 0
+      if: github.event_name == 'pull_request' && inputs.action == 'plan' && steps.plan.outputs.exitcode != 0
       # only add plan to PR if there were errors or changes
       with:
         github-token: ${{ inputs.github-token }}
