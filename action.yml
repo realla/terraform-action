@@ -22,6 +22,7 @@ runs:
       uses: hashicorp/setup-terraform@v1
       with:
         terraform_version: ${{ inputs.version }}
+        terraform_wrapper: false
 
     - name: Terraform init
       shell: bash
@@ -37,7 +38,9 @@ runs:
       shell: bash
       id: validate
       working-directory: ${{ inputs.working-directory }}
-      run: terraform validate -no-color
+      run: |
+        stdout=$(terraform validate -no-color)
+        echo "::set-output name=stdout::${stdout}"
 
     - name: Terraform plan
       shell: bash
@@ -48,7 +51,9 @@ runs:
       run: |
         set +e
         output=$(terraform plan -no-color -input=false -detailed-exitcode 2>&1)
+        exitcode=$?
         echo "$output" | sed '/Refreshing state.../d' | tee /tmp/plan.txt
+        echo "::set-output name=exitcode::${exitcode}"
       # 0 = no changes, 1 = error, 2 = success with changes
 
     - name: Add plan to PR
